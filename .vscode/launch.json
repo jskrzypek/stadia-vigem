@@ -5,7 +5,7 @@
             "name": "Build and debug",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "bin/mi-vigem.exe",
+            "program": "bin/stadia-vigem.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

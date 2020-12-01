@@ -9,8 +9,8 @@
 #pragma comment(lib, "shell32.lib")
 
 #define WM_TRAY_CALLBACK_MESSAGE (WM_USER + 1)
-#define WC_TRAY_CLASS_NAME TEXT("MiViGEmClass")
-#define WC_TRAY_MUTEX_NAME TEXT("MI-VIGEM")
+#define WC_TRAY_CLASS_NAME TEXT("StadiaViGEmClass")
+#define WC_TRAY_MUTEX_NAME TEXT("Stadia Controller")
 #define ID_TRAY_FIRST 1000
 
 static WNDCLASSEX wc;

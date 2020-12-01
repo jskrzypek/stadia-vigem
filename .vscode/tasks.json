@@ -6,7 +6,7 @@
       "label": "Compile resources",
       "command": "rc.exe",
       "args": [
-        "/foobj/mi-vigem.res",
+        "/foobj/stadia-vigem.res",
         "res/res.rc"
       ],
       "group": "build",
@@ -17,22 +17,7 @@
     {
       "type": "shell",
       "label": "Build debug binary",
-      "command": "cl.exe",
-      "args": [
-        "/Zi",
-        "/Od",
-        "/EHsc",
-        "/DWIN32",
-        "/D_UNICODE",
-        "/DUNICODE",
-        "/Iinclude",
-        "/Foobj/",
-        "/Febin/mi-vigem.exe",
-        "lib/ViGEmClient/*.cpp",
-        "obj/mi-vigem.res",
-        "src/*.c"
-
-      ],
+      "command": "./Build-Debug.cmd",
       "problemMatcher": [
         "$msCompile"
       ],
@@ -44,22 +29,7 @@
     {
       "type": "shell",
       "label": "Build release binary",
-      "command": "cl.exe",
-      "args": [
-        "/GL",
-        "/Zi",
-        "/O2",
-        "/EHsc",
-        "/DWIN32",
-        "/D_UNICODE",
-        "/DUNICODE",
-        "/Iinclude",
-        "/Foobj/",
-        "/Febin/mi-vigem.exe",
-        "lib/ViGEmClient/*.cpp",
-        "obj/mi-vigem.res",
-        "src/*.c"
-      ],
+      "command": "./Build-Release.cmd",
       "problemMatcher": [
         "$msCompile"
       ],

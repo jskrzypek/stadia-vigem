@@ -8,22 +8,22 @@
 
 #include "tray.h"
 #include "hid.h"
-#include "mi.h"
 #include "hid_hide.h"
+#include "stadia.h"
 
 #ifndef _DEBUG
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
 
 #define MAX_ACTIVE_DEVICE_COUNT 4
-#define ACTIVE_DEVICE_MENU_TEMPLATE TEXT("#%d Xiaomi Gamepad (batt. %s)")
+#define ACTIVE_DEVICE_MENU_TEMPLATE TEXT("%d. Stadia Controller")
 #define BATTERY_NA_TEXT TEXT("N/A")
 
 struct active_device
 {
     int index;
     struct hid_device *src_device;
-    int src_gamepad_id;
+    int src_controller_id;
     int src_battery_level;
     PVIGEM_TARGET tgt_device;
     XUSB_REPORT tgt_report;
@@ -41,8 +41,8 @@ static BOOLEAN vigem_connected = FALSE;
 static BOOLEAN hid_hide_connected = FALSE;
 
 // future declarations
-static void mi_gamepad_update_cb(int gamepad_id, struct mi_state *state);
-static void mi_gamepad_stop_cb(int gamepad_id, BYTE break_reason);
+static void stadia_controller_update_cb(int controller_id, struct stadia_state *state);
+static void stadia_controller_stop_cb(int controller_id, BYTE break_reason);
 static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET target, UCHAR large_motor,
                                           UCHAR small_motor, UCHAR led_number, LPVOID user_data);
 static void refresh_cb(struct tray_menu *item);
@@ -55,7 +55,7 @@ static const struct tray_menu tray_menu_terminator = { .text = NULL };
 static struct tray tray =
 {
     .icon = TEXT("APP_ICON"),
-    .tip = TEXT("Mi-ViGEm"),
+    .tip = TEXT("Stadia Controller"),
     .menu = NULL
 };
 
@@ -102,7 +102,7 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 {
     if (active_device_count == MAX_ACTIVE_DEVICE_COUNT)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Add new device"),
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Device count limit reached"));
         return FALSE;
     }
@@ -126,15 +126,15 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 
     if (device == NULL)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Add new device"),
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Error opening new device"));
         return FALSE;
     }
 
-    int mi_gamepad_id = mi_gamepad_start(device, mi_gamepad_update_cb, mi_gamepad_stop_cb);
-    if (mi_gamepad_id < 0)
+    int stadia_controller_id = stadia_controller_start(device, stadia_controller_update_cb, stadia_controller_stop_cb);
+    if (stadia_controller_id < 0)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Add new device"),
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Error initializing new device"));
         hid_close_device(device);
         hid_free_device(device);
@@ -144,7 +144,7 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
     struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
     active_device->src_device = device;
     active_device->index = ++last_active_device_index;
-    active_device->src_gamepad_id = mi_gamepad_id;
+    active_device->src_controller_id = stadia_controller_id;
     active_device->src_battery_level = -1;
     if (vigem_connected)
     {
@@ -168,26 +168,21 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 
     rebuild_tray_menu();
     tray_update(&tray);
-    if (vigem_connected)
+    if (!vigem_connected)
     {
-        tray_show_notification(NT_TRAY_INFO, TEXT("Add new device"),
-                               TEXT("Device added successfully"));
-    }
-    else
-    {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Add new device"),
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Device added, but emulation doesn't work due to ViGEmBus problem"));
     }
     return TRUE;
 }
 
-static BOOLEAN remove_device(int mi_gamepad_id)
+static BOOLEAN remove_device(int stadia_controller_id)
 {
     BOOLEAN removed = FALSE;
     AcquireSRWLockExclusive(&active_devices_lock);
     for (int i = 0; i < active_device_count; i++)
     {
-        if (active_devices[i]->src_gamepad_id == mi_gamepad_id)
+        if (active_devices[i]->src_controller_id == stadia_controller_id)
         {
             if (active_devices[i]->hid_hidden)
             {
@@ -220,8 +215,8 @@ static BOOLEAN remove_device(int mi_gamepad_id)
 
 static void refresh_devices()
 {
-    LPTSTR mi_hw_path_filters[3] = { MI_HW_FILTER_WIN10, MI_HW_FILTER_WIN7, NULL };
-    struct hid_device_info *device_info = hid_enumerate(mi_hw_path_filters);
+    LPTSTR stadia_hw_path_filters[3] = { STADIA_HW_FILTER, NULL };
+    struct hid_device_info *device_info = hid_enumerate(stadia_hw_path_filters);
     struct hid_device_info *cur;
     BOOLEAN found = FALSE;
 
@@ -242,7 +237,7 @@ static void refresh_devices()
         }
         if (!found)
         {
-            mi_gamepad_stop(active_devices[i]->src_gamepad_id);
+            stadia_controller_stop(active_devices[i]->src_controller_id);
         }
     }
     ReleaseSRWLockShared(&active_devices_lock);
@@ -290,13 +285,13 @@ static void device_change_cb(UINT op, LPTSTR path)
     refresh_devices();
 }
 
-static void mi_gamepad_update_cb(int gamepad_id, struct mi_state *state)
+static void stadia_controller_update_cb(int controller_id, struct stadia_state *state)
 {
     struct active_device *active_device = NULL;
     AcquireSRWLockShared(&active_devices_lock);
     for (int i = 0; i < active_device_count; i++)
     {
-        if (active_devices[i]->src_gamepad_id == gamepad_id)
+        if (active_devices[i]->src_controller_id == controller_id)
         {
             active_device = active_devices[i];
             break;
@@ -326,21 +321,21 @@ static void mi_gamepad_update_cb(int gamepad_id, struct mi_state *state)
     if (vigem_connected)
     {
         active_device->tgt_report.wButtons = 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_UP) != 0 ? XUSB_GAMEPAD_DPAD_UP : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_DOWN) != 0 ? XUSB_GAMEPAD_DPAD_DOWN : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_LEFT) != 0 ? XUSB_GAMEPAD_DPAD_LEFT : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_RIGHT) != 0 ? XUSB_GAMEPAD_DPAD_RIGHT : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_MENU) != 0 ? XUSB_GAMEPAD_START : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_RETURN) != 0 ? XUSB_GAMEPAD_BACK : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_LS) != 0 ? XUSB_GAMEPAD_LEFT_THUMB : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_RS) != 0 ? XUSB_GAMEPAD_RIGHT_THUMB : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_L1) != 0 ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_R1) != 0 ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_A) != 0 ? XUSB_GAMEPAD_A : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_B) != 0 ? XUSB_GAMEPAD_B : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_X) != 0 ? XUSB_GAMEPAD_X : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_Y) != 0 ? XUSB_GAMEPAD_Y : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & MI_BUTTON_MI_BTN) != 0 ? XUSB_GAMEPAD_GUIDE : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_UP) != 0 ? XUSB_GAMEPAD_DPAD_UP : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_DOWN) != 0 ? XUSB_GAMEPAD_DPAD_DOWN : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LEFT) != 0 ? XUSB_GAMEPAD_DPAD_LEFT : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RIGHT) != 0 ? XUSB_GAMEPAD_DPAD_RIGHT : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_MENU) != 0 ? XUSB_GAMEPAD_START : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_OPTIONS) != 0 ? XUSB_GAMEPAD_BACK : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LS) != 0 ? XUSB_GAMEPAD_LEFT_THUMB : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RS) != 0 ? XUSB_GAMEPAD_RIGHT_THUMB : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_L1) != 0 ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_R1) != 0 ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_A) != 0 ? XUSB_GAMEPAD_A : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_B) != 0 ? XUSB_GAMEPAD_B : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_X) != 0 ? XUSB_GAMEPAD_X : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_Y) != 0 ? XUSB_GAMEPAD_Y : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_STADIA_BTN) != 0 ? XUSB_GAMEPAD_GUIDE : 0;
         active_device->tgt_report.bLeftTrigger = state->l2_trigger;
         active_device->tgt_report.bRightTrigger = state->r2_trigger;
         active_device->tgt_report.sThumbLX = _map_byte_to_short(state->left_stick_x, FALSE);
@@ -351,33 +346,34 @@ static void mi_gamepad_update_cb(int gamepad_id, struct mi_state *state)
     }
 }
 
-static void mi_gamepad_stop_cb(int gamepad_id, BYTE break_reason)
+static void stadia_controller_stop_cb(int controller_id, BYTE break_reason)
 {
-    UINT ntf_type = break_reason == MI_BREAK_REASON_REQUESTED ? NT_TRAY_INFO : NT_TRAY_WARNING;
+    UINT ntf_type = break_reason == STADIA_BREAK_REASON_REQUESTED ? NT_TRAY_INFO : NT_TRAY_WARNING;
     LPTSTR ntf_text;
-    switch (break_reason)
-    {
-    case MI_BREAK_REASON_REQUESTED:
-        ntf_text = TEXT("Device removed successfully");
-        break;
-    case MI_BREAK_REASON_INIT_ERROR:
-        ntf_text = TEXT("Error initializing device");
-        break;
-    case MI_BREAK_REASON_READ_ERROR:
-        ntf_text = TEXT("Error reading data");
-        break;
-    case MI_BREAK_REASON_WRITE_ERROR:
-        ntf_text = TEXT("Error writing data");
-        break;
-    default:
-        ntf_text = TEXT("Unknown error");
-        break;
-    }
-    if (remove_device(gamepad_id))
+    if (remove_device(controller_id))
     {
         rebuild_tray_menu();
         tray_update(&tray);
-        tray_show_notification(ntf_type, TEXT("Remove device"), ntf_text);
+
+        switch (break_reason)
+        {
+        case STADIA_BREAK_REASON_REQUESTED:
+            return;
+        case STADIA_BREAK_REASON_INIT_ERROR:
+            ntf_text = TEXT("Error initializing device");
+            break;
+        case STADIA_BREAK_REASON_READ_ERROR:
+            ntf_text = TEXT("Error reading data");
+            break;
+        case STADIA_BREAK_REASON_WRITE_ERROR:
+            ntf_text = TEXT("Error writing data");
+            break;
+        default:
+            ntf_text = TEXT("Unknown error");
+            break;
+        }
+
+        tray_show_notification(ntf_type, TEXT("Stadia Controller error"), ntf_text);
     }
 }
 
@@ -385,7 +381,7 @@ static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET ta
                                           UCHAR small_motor, UCHAR led_number, LPVOID user_data)
 {
     struct active_device *active_device = (struct active_device *)user_data;
-    mi_gamepad_set_vibration(active_device->src_gamepad_id, small_motor, large_motor);
+    stadia_controller_set_vibration(active_device->src_controller_id, small_motor, large_motor);
 }
 
 static void refresh_cb(struct tray_menu *item)
@@ -416,17 +412,17 @@ int main()
     VIGEM_ERROR vigem_res = vigem_connect(vigem_client);
     if (vigem_res == VIGEM_ERROR_BUS_NOT_FOUND)
     {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("ViGEmBus connection"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("ViGEmBus not installed"));
     }
     else if (vigem_res == VIGEM_ERROR_BUS_VERSION_MISMATCH)
     {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("ViGEmBus connection"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("ViGEmBus incompatible version"));
     }
     else if (vigem_res != VIGEM_ERROR_NONE)
     {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("ViGEmBus connection"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("Error connecting to ViGEmBus"));
     }
     else
