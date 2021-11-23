@@ -11,10 +11,10 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "FileDescription",  "Stadia Controller ViGEm client"
+            VALUE "FileDescription",  "Stadia-ViGEm Controller Service"
             VALUE "FileVersion",      "1.0.0.0"
             VALUE "LegalCopyright",   "WALKCO"
-            VALUE "OriginalFilename", "stadia-vigem.exe"
+            VALUE "OriginalFilename", "StadiaViGEm.Service.exe"
             VALUE "ProductName",      "Stadia-ViGEm"
             VALUE "ProductVersion",   "1.0.0.0"
         END

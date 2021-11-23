@@ -16,7 +16,7 @@
     },
     {
       "type": "shell",
-      "label": "Build debug binary",
+      "label": "Build service (debug)",
       "command": "./Build-Debug.cmd",
       "problemMatcher": [
         "$msCompile"
@@ -28,7 +28,7 @@
     },
     {
       "type": "shell",
-      "label": "Build release binary",
+      "label": "Build service (release)",
       "command": "./Build-Release.cmd",
       "problemMatcher": [
         "$msCompile"

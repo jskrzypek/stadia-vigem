@@ -1,456 +1,425 @@
-#include <stdio.h>
-#include <string.h>
-#include <tchar.h>
 #include <windows.h>
-#include <synchapi.h>
+#include <tchar.h>
+#include <strsafe.h>
+#include <processthreadsapi.h>
+#include <dbt.h>
 
-#include <ViGEm/Client.h>
+#include "messages.h"
+#include "service.h"
 
-#include "tray.h"
-#include "hid.h"
-#include "stadia.h"
+#pragma comment(lib, "advapi32.lib")
 
-#ifndef _DEBUG
-#pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
-#endif
+SERVICE_STATUS          gSvcStatus; 
+SERVICE_STATUS_HANDLE   gSvcStatusHandle; 
+BOOL                    keep_running = TRUE;
+DWORD                   main_thread_id;
 
-#define MAX_ACTIVE_DEVICE_COUNT 4
-#define ACTIVE_DEVICE_MENU_TEMPLATE TEXT("%d. Stadia Controller")
-#define BATTERY_NA_TEXT TEXT("N/A")
+VOID SvcInstall(void);
+VOID SvcUninstall(void);
+VOID WINAPI SvcCtrlHandler( DWORD ); 
+VOID WINAPI SvcMain( DWORD, LPTSTR * ); 
 
-struct active_device
-{
-    int index;
-    struct hid_device *src_device;
-    int src_controller_id;
-    int src_battery_level;
-    PVIGEM_TARGET tgt_device;
-    XUSB_REPORT tgt_report;
-    LPTSTR tray_text;
-    struct tray_menu *tray_menu;
-};
+VOID ReportSvcStatus( DWORD, DWORD, DWORD );
+VOID SvcInit( DWORD, LPTSTR * ); 
+VOID SvcReportEvent( LPTSTR );
 
-static int last_active_device_index = 0;
-static int active_device_count = 0;
-static struct active_device *active_devices[MAX_ACTIVE_DEVICE_COUNT];
-static SRWLOCK active_devices_lock = SRWLOCK_INIT;
-static PVIGEM_CLIENT vigem_client;
-static BOOL vigem_connected = FALSE;
+//
+// Purpose: 
+//   Entry point for the process
+//
+// Parameters:
+//   None
+// 
+// Return value:
+//   None, defaults to 0 (zero)
+//
+int __cdecl _tmain(int argc, TCHAR *argv[]) 
+{ 
+    // If command-line parameter is "install", install the service.
+    // If command-line parameter is "uninstall", uninstall the service.
+    // If command-line parameter is "debug", start service in console. 
+    // Otherwise, the service is probably being started by the SCM.
 
-// future declarations
-static void stadia_controller_update_cb(int controller_id, struct stadia_state *state);
-static void stadia_controller_stop_cb(int controller_id, BYTE break_reason);
-static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET target, UCHAR large_motor,
-                                          UCHAR small_motor, UCHAR led_number, LPVOID user_data);
-static void refresh_cb(struct tray_menu *item);
-static void quit_cb(struct tray_menu *item);
-
-static const struct tray_menu tray_menu_refresh = { .text = TEXT("Refresh"), .cb = refresh_cb };
-static const struct tray_menu tray_menu_quit = { .text = TEXT("Quit"), .cb = quit_cb };
-static const struct tray_menu tray_menu_separator = { .text = TEXT("-") };
-static const struct tray_menu tray_menu_terminator = { .text = NULL };
-static struct tray tray =
-{
-    .icon = TEXT("APP_ICON"),
-    .tip = TEXT("Stadia Controller"),
-    .menu = NULL
-};
-
-SHORT FORCEINLINE _map_byte_to_short(BYTE value, BOOL inverted)
-{
-    CHAR centered = value - 128;
-    if (centered < -127)
+    if( lstrcmpi( argv[1], TEXT("install")) == 0 )
     {
-        centered = -127;
+        SvcInstall();
+        return;
     }
-    if (inverted)
+    else if( lstrcmpi( argv[1], TEXT("uninstall")) == 0 )
     {
-        centered = -centered;
+        SvcUninstall();
+        return;
     }
-    return (SHORT)(32767 * centered / 127);
-}
-
-static void rebuild_tray_menu()
-{
-    struct tray_menu *prev_menu = tray.menu;
-
-    AcquireSRWLockShared(&active_devices_lock);
-    int dyn_item_count = active_device_count > 0 ? active_device_count + 1 : 0;
-    struct tray_menu *new_menu = (struct tray_menu *)malloc((dyn_item_count + 3) * sizeof(struct tray_menu));
-    int index = 0;
-    for (; index < active_device_count; index++)
+    else if ( lstrcmpi( argv[1], TEXT("debug")) == 0 )
     {
-        new_menu[index] = *active_devices[index]->tray_menu;
-    }
-    ReleaseSRWLockShared(&active_devices_lock);
-    if (dyn_item_count > 0)
-    {
-        new_menu[index++] = tray_menu_separator;
-    }
-    new_menu[index++] = tray_menu_refresh;
-    new_menu[index++] = tray_menu_quit;
-    new_menu[index++] = tray_menu_terminator;
-
-    tray.menu = new_menu;
-    free(prev_menu);
-}
-
-static BOOL add_device(LPTSTR path)
-{
-    if (active_device_count == MAX_ACTIVE_DEVICE_COUNT)
-    {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
-                               TEXT("Device count limit reached"));
-        return FALSE;
-    }
-
-    struct hid_device *device = hid_open_device(path, TRUE, FALSE);
-    if (device == NULL)
-    {
-        if (hid_reenable_device(path))
+        int init_result = service_init(NULL);
+        if (init_result != 0)
         {
-            device = hid_open_device(path, TRUE, FALSE);
-            if (device == NULL)
-            {
-                device = hid_open_device(path, TRUE, TRUE);
-            }
+            printf("Init error (%x)\n", init_result);
+            return;
         }
-        else
-        {
-            device = hid_open_device(path, TRUE, TRUE);
-        }
+        
+        while (service_loop(TRUE) == 0) {;}
+
+        service_quit();
     }
 
-    if (device == NULL)
-    {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
-                               TEXT("Error opening new device"));
-        return FALSE;
-    }
+    SERVICE_TABLE_ENTRY DispatchTable[] = 
+    { 
+        { SVCNAME, (LPSERVICE_MAIN_FUNCTION) SvcMain }, 
+        { NULL, NULL } 
+    }; 
+ 
+    // This call returns when the service has stopped. 
+    // The process should simply terminate when the call returns.
 
-    int stadia_controller_id = stadia_controller_start(device, stadia_controller_update_cb, stadia_controller_stop_cb);
-    if (stadia_controller_id < 0)
-    {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
-                               TEXT("Error initializing new device"));
-        hid_close_device(device);
-        hid_free_device(device);
-        return FALSE;
-    }
+    if (!StartServiceCtrlDispatcher( DispatchTable )) 
+    { 
+        SvcReportEvent(TEXT("StartServiceCtrlDispatcher")); 
+    } 
+} 
 
-    struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
-    active_device->src_device = device;
-    active_device->index = ++last_active_device_index;
-    active_device->src_controller_id = stadia_controller_id;
-    active_device->src_battery_level = -1;
-    if (vigem_connected)
-    {
-        active_device->tgt_device = vigem_target_x360_alloc();
-        vigem_target_add(vigem_client, active_device->tgt_device);
-        XUSB_REPORT_INIT(&active_device->tgt_report);
-        vigem_target_x360_register_notification(vigem_client, active_device->tgt_device, x360_notification_cb,
-                                                (LPVOID)active_device);
-    }
-    int tray_text_length = _sctprintf(ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
-    active_device->tray_text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
-    _stprintf(active_device->tray_text, ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
-    active_device->tray_menu = (struct tray_menu *)malloc(sizeof(struct tray_menu));
-    memset(active_device->tray_menu, 0, sizeof(struct tray_menu));
-    active_device->tray_menu->text = active_device->tray_text;
-
-    AcquireSRWLockExclusive(&active_devices_lock);
-    active_devices[active_device_count++] = active_device;
-    ReleaseSRWLockExclusive(&active_devices_lock);
-
-    rebuild_tray_menu();
-    tray_update(&tray);
-    if (!vigem_connected)
-    {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
-                               TEXT("Device added, but emulation doesn't work due to ViGEmBus problem"));
-    }
-    return TRUE;
-}
-
-static BOOL remove_device(int stadia_controller_id)
+//
+// Purpose: 
+//   Installs the service in the SCM database
+//
+// Parameters:
+//   None
+// 
+// Return value:
+//   None
+//
+VOID SvcInstall()
 {
-    BOOL removed = FALSE;
-    AcquireSRWLockExclusive(&active_devices_lock);
-    for (int i = 0; i < active_device_count; i++)
+    SC_HANDLE schSCManager;
+    SC_HANDLE schService;
+    TCHAR szPath[MAX_PATH];
+
+    if(!GetModuleFileName(NULL, szPath, MAX_PATH ) )
     {
-        if (active_devices[i]->src_controller_id == stadia_controller_id)
-        {
-            hid_close_device(active_devices[i]->src_device);
-            hid_free_device(active_devices[i]->src_device);
-            if (vigem_connected)
-            {
-                vigem_target_x360_unregister_notification(active_devices[i]->tgt_device);
-                vigem_target_remove(vigem_client, active_devices[i]->tgt_device);
-                vigem_target_free(active_devices[i]->tgt_device);
-            }
-            free(active_devices[i]->tray_menu);
-            free(active_devices[i]->tray_text);
-            free(active_devices[i]);
-            if (i < active_device_count - 1)
-            {
-                memmove(&active_devices[i], &active_devices[i + 1],
-                        sizeof(struct active_device *) * (active_device_count - i - 1));
-            }
-            active_device_count--;
-            removed = TRUE;
-            break;
-        }
-    }
-    ReleaseSRWLockExclusive(&active_devices_lock);
-    return removed;
-}
-
-static void refresh_devices()
-{
-    LPTSTR stadia_hw_path_filters[3] = { STADIA_HW_FILTER, NULL };
-    struct hid_device_info *device_info = hid_enumerate(stadia_hw_path_filters);
-    struct hid_device_info *cur;
-    BOOL found = FALSE;
-
-    // remove missing devices
-    AcquireSRWLockShared(&active_devices_lock);
-    for (int i = 0; i < active_device_count; i++)
-    {
-        found = FALSE;
-        cur = device_info;
-        while (cur != NULL)
-        {
-            if (_tcscmp(active_devices[i]->src_device->path, cur->path) == 0)
-            {
-                found = TRUE;
-                break;
-            }
-            cur = cur->next;
-        }
-        if (!found)
-        {
-            stadia_controller_stop(active_devices[i]->src_controller_id);
-        }
-    }
-    ReleaseSRWLockShared(&active_devices_lock);
-
-    // add new devices
-    cur = device_info;
-    while (cur != NULL)
-    {
-        found = FALSE;
-        AcquireSRWLockShared(&active_devices_lock);
-        for (int i = 0; i < active_device_count; i++)
-        {
-            if (_tcscmp(cur->path, active_devices[i]->src_device->path) == 0)
-            {
-                found = TRUE;
-                break;
-            }
-        }
-        ReleaseSRWLockShared(&active_devices_lock);
-        if (!found)
-        {
-            add_device(cur->path);
-        }
-        cur = cur->next;
-    }
-
-    // free hid_device_info list
-    while (device_info)
-    {
-        cur = device_info->next;
-        hid_free_device_info(device_info);
-        device_info = cur;
-    }
-}
-
-static void device_change_cb(UINT op, LPTSTR path)
-{
-    // refresh devices regardless operation type
-#ifdef UNICODE
-    printf("Device operation %d with path %S\n", op, path);
-#else
-    printf("Device operation %d with path %s\n", op, path);
-#endif
-    fflush(stdout);
-    refresh_devices();
-}
-
-static void stadia_controller_update_cb(int controller_id, struct stadia_state *state)
-{
-    struct active_device *active_device = NULL;
-    AcquireSRWLockShared(&active_devices_lock);
-    for (int i = 0; i < active_device_count; i++)
-    {
-        if (active_devices[i]->src_controller_id == controller_id)
-        {
-            active_device = active_devices[i];
-            break;
-        }
-    }
-    ReleaseSRWLockShared(&active_devices_lock);
-
-    if (active_device == NULL)
-    {
+        printf("Cannot install service (%d)\n", GetLastError());
         return;
     }
 
-    if (active_device->src_battery_level != state->battery)
+    // Get a handle to the SCM database. 
+ 
+    schSCManager = OpenSCManager( 
+        NULL,                    // local computer
+        NULL,                    // ServicesActive database 
+        SC_MANAGER_ALL_ACCESS);  // full access rights 
+ 
+    if (NULL == schSCManager) 
     {
-        active_device->src_battery_level = state->battery;
-        TCHAR battery_buffer[5];
-        _stprintf(battery_buffer, TEXT("%d%%"), active_device->src_battery_level);
-        int tray_text_length = _sctprintf(ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, battery_buffer);
-        free(active_device->tray_text);
-        active_device->tray_text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
-        _stprintf(active_device->tray_text, ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, battery_buffer);
-        active_device->tray_menu->text = active_device->tray_text;
-        rebuild_tray_menu();
-        tray_update(&tray);
+        printf("OpenSCManager failed (%d)\n", GetLastError());
+        return;
     }
 
-    if (vigem_connected)
+    // Create the service
+
+    schService = CreateService( 
+        schSCManager,              // SCM database 
+        SVCNAME,                   // name of service 
+        SVCNAME,                   // service name to display 
+        SERVICE_ALL_ACCESS,        // desired access 
+        SERVICE_WIN32_OWN_PROCESS, // service type 
+        SERVICE_AUTO_START,        // start type 
+        SERVICE_ERROR_NORMAL,      // error control type 
+        szPath,                    // path to service's binary 
+        NULL,                      // no load ordering group 
+        NULL,                      // no tag identifier 
+        NULL,                      // no dependencies 
+        NULL,                      // LocalSystem account 
+        NULL);                     // no password 
+ 
+    if (schService == NULL) 
     {
-        active_device->tgt_report.wButtons = 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_UP) != 0 ? XUSB_GAMEPAD_DPAD_UP : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_DOWN) != 0 ? XUSB_GAMEPAD_DPAD_DOWN : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LEFT) != 0 ? XUSB_GAMEPAD_DPAD_LEFT : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RIGHT) != 0 ? XUSB_GAMEPAD_DPAD_RIGHT : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_MENU) != 0 ? XUSB_GAMEPAD_START : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_OPTIONS) != 0 ? XUSB_GAMEPAD_BACK : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LS) != 0 ? XUSB_GAMEPAD_LEFT_THUMB : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RS) != 0 ? XUSB_GAMEPAD_RIGHT_THUMB : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_L1) != 0 ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_R1) != 0 ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_A) != 0 ? XUSB_GAMEPAD_A : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_B) != 0 ? XUSB_GAMEPAD_B : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_X) != 0 ? XUSB_GAMEPAD_X : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_Y) != 0 ? XUSB_GAMEPAD_Y : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_STADIA_BTN) != 0 ? XUSB_GAMEPAD_GUIDE : 0;
-        active_device->tgt_report.bLeftTrigger = state->l2_trigger;
-        active_device->tgt_report.bRightTrigger = state->r2_trigger;
-        active_device->tgt_report.sThumbLX = _map_byte_to_short(state->left_stick_x, FALSE);
-        active_device->tgt_report.sThumbLY = _map_byte_to_short(state->left_stick_y, TRUE);
-        active_device->tgt_report.sThumbRX = _map_byte_to_short(state->right_stick_x, FALSE);
-        active_device->tgt_report.sThumbRY = _map_byte_to_short(state->right_stick_y, TRUE);
-        vigem_target_x360_update(vigem_client, active_device->tgt_device, active_device->tgt_report);
+        printf("CreateService failed (%d)\n", GetLastError()); 
+        CloseServiceHandle(schSCManager);
+        return;
     }
+
+    SERVICE_DESCRIPTION sd;
+    LPTSTR szDesc = TEXT("Manages Stadia controllers attached to the system and processes their input into virtual Xbox 360 controllers.");
+
+    sd.lpDescription = szDesc;
+
+    if( !ChangeServiceConfig2(
+        schService,                 // handle to service
+        SERVICE_CONFIG_DESCRIPTION, // change: description
+        &sd) )                      // new description
+    {
+        printf("ChangeServiceConfig2 failed\n");
+    }
+
+    printf("Service installed successfully\n"); 
+
+    CloseServiceHandle(schService); 
+    CloseServiceHandle(schSCManager);
 }
 
-static void stadia_controller_stop_cb(int controller_id, BYTE break_reason)
+//
+// Purpose: 
+//   Uninstalls the service from the SCM database
+//
+// Parameters:
+//   None
+// 
+// Return value:
+//   None
+//
+VOID SvcUninstall()
 {
-    UINT ntf_type = break_reason == STADIA_BREAK_REASON_REQUESTED ? NT_TRAY_INFO : NT_TRAY_WARNING;
-    LPTSTR ntf_text;
-    if (remove_device(controller_id))
-    {
-        rebuild_tray_menu();
-        tray_update(&tray);
+    SC_HANDLE schSCManager;
+    SC_HANDLE schService;
+    TCHAR szPath[MAX_PATH];
 
-        switch (break_reason)
+    if(!GetModuleFileName(NULL, szPath, MAX_PATH ) )
+    {
+        printf("Cannot install service (%d)\n", GetLastError());
+        return;
+    }
+
+    // Get a handle to the SCM database. 
+ 
+    schSCManager = OpenSCManager( 
+        NULL,                    // local computer
+        NULL,                    // ServicesActive database 
+        SC_MANAGER_ALL_ACCESS);  // full access rights 
+ 
+    if (NULL == schSCManager) 
+    {
+        printf("OpenSCManager failed (%d)\n", GetLastError());
+        return;
+    }
+    
+    // Get a handle to the service.
+
+    schService = OpenService( 
+        schSCManager,       // SCM database 
+        SVCNAME,          // name of service 
+        DELETE);            // need delete access 
+ 
+    if (schService == NULL)
+    { 
+        printf("OpenService failed (%d)\n", GetLastError()); 
+        CloseServiceHandle(schSCManager);
+        return;
+    }
+
+    // Delete the service.
+ 
+    if (! DeleteService(schService) ) 
+    {
+        printf("DeleteService failed (%d)\n", GetLastError()); 
+    }
+    else printf("Service deleted successfully\n"); 
+}
+
+//
+// Purpose: 
+//   Entry point for the service
+//
+// Parameters:
+//   dwArgc - Number of arguments in the lpszArgv array
+//   lpszArgv - Array of strings. The first string is the name of
+//     the service and subsequent strings are passed by the process
+//     that called the StartService function to start the service.
+// 
+// Return value:
+//   None.
+//
+VOID WINAPI SvcMain( DWORD dwArgc, LPTSTR *lpszArgv )
+{
+    // Register the handler function for the service
+
+    gSvcStatusHandle = RegisterServiceCtrlHandlerEx( 
+        SVCNAME, 
+        (LPHANDLER_FUNCTION_EX)SvcCtrlHandler, 0);
+
+    if( !gSvcStatusHandle )
+    { 
+        SvcReportEvent(TEXT("RegisterServiceCtrlHandler")); 
+        return; 
+    } 
+
+    // These SERVICE_STATUS members remain as set here
+
+    gSvcStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS; 
+    gSvcStatus.dwServiceSpecificExitCode = 0;    
+
+    // Report initial status to the SCM
+
+    ReportSvcStatus( SERVICE_START_PENDING, NO_ERROR, 3000 );
+
+    // Perform service-specific initialization and work.
+
+    SvcInit( dwArgc, lpszArgv );
+}
+
+//
+// Purpose: 
+//   The service code
+//
+// Parameters:
+//   dwArgc - Number of arguments in the lpszArgv array
+//   lpszArgv - Array of strings. The first string is the name of
+//     the service and subsequent strings are passed by the process
+//     that called the StartService function to start the service.
+// 
+// Return value:
+//   None
+//
+VOID SvcInit( DWORD dwArgc, LPTSTR *lpszArgv)
+{
+    main_thread_id = GetCurrentThreadId();
+
+    int init_result = service_init(gSvcStatusHandle);
+    if (init_result != 0)
+    {
+        ReportSvcStatus( SERVICE_STOPPED, init_result, 0 );
+        return;
+    }
+
+    // Report running status when initialization is complete.
+
+    ReportSvcStatus( SERVICE_RUNNING, NO_ERROR, 0 );
+
+    while(service_loop(TRUE) == 0) {;}
+
+    service_quit();
+
+    ReportSvcStatus( SERVICE_STOPPED, NO_ERROR, 0 );
+    return;
+}
+
+//
+// Purpose: 
+//   Sets the current service status and reports it to the SCM.
+//
+// Parameters:
+//   dwCurrentState - The current state (see SERVICE_STATUS)
+//   dwWin32ExitCode - The system error code
+//   dwWaitHint - Estimated time for pending operation, 
+//     in milliseconds
+// 
+// Return value:
+//   None
+//
+VOID ReportSvcStatus( DWORD dwCurrentState,
+                      DWORD dwWin32ExitCode,
+                      DWORD dwWaitHint)
+{
+    static DWORD dwCheckPoint = 1;
+
+    // Fill in the SERVICE_STATUS structure.
+
+    gSvcStatus.dwCurrentState = dwCurrentState;
+    gSvcStatus.dwWin32ExitCode = dwWin32ExitCode;
+    gSvcStatus.dwWaitHint = dwWaitHint;
+
+    if (dwCurrentState == SERVICE_START_PENDING)
+        gSvcStatus.dwControlsAccepted = 0;
+    else gSvcStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+
+    if ( (dwCurrentState == SERVICE_RUNNING) ||
+           (dwCurrentState == SERVICE_STOPPED) )
+        gSvcStatus.dwCheckPoint = 0;
+    else gSvcStatus.dwCheckPoint = dwCheckPoint++;
+
+    // Report the status of the service to the SCM.
+    SetServiceStatus( gSvcStatusHandle, &gSvcStatus );
+}
+
+//
+// Purpose: 
+//   Called by SCM whenever a control code is sent to the service
+//   using the ControlService function.
+//
+// Parameters:
+//   dwCtrl - control code
+// 
+// Return value:
+//   None
+//
+VOID WINAPI SvcCtrlHandler(DWORD dwCtrl, DWORD evtype, PVOID evdata, PVOID Context)
+{
+   // Handle the requested control code. 
+
+   switch(dwCtrl) 
+   {  
+      case SERVICE_CONTROL_STOP: 
+        ReportSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 0);
+
+        // Signal the service to stop.
+
+        PostThreadMessage(main_thread_id, WM_QUIT, 0, 0);
+        ReportSvcStatus(gSvcStatus.dwCurrentState, NO_ERROR, 0);
+         
+        return;
+
+      case SERVICE_CONTROL_DEVICEEVENT:
+        switch (evtype)
         {
-        case STADIA_BREAK_REASON_REQUESTED:
-            return;
-        case STADIA_BREAK_REASON_INIT_ERROR:
-            ntf_text = TEXT("Error initializing device");
+            case DBT_DEVICEREMOVECOMPLETE:
+            {
+                PostThreadMessage(main_thread_id, WM_DEVICECHANGE, 0, 0);
+            }
             break;
-        case STADIA_BREAK_REASON_READ_ERROR:
-            ntf_text = TEXT("Error reading data");
-            break;
-        case STADIA_BREAK_REASON_WRITE_ERROR:
-            ntf_text = TEXT("Error writing data");
-            break;
-        default:
-            ntf_text = TEXT("Unknown error");
+            case DBT_DEVICEARRIVAL:
+            {
+                PostThreadMessage(main_thread_id, WM_DEVICECHANGE, 0, 0);
+            }
             break;
         }
-
-        tray_show_notification(ntf_type, TEXT("Stadia Controller error"), ntf_text);
-    }
+        break;
+ 
+      case SERVICE_CONTROL_INTERROGATE: 
+        break; 
+ 
+      default: 
+        break;
+   } 
+   
 }
 
-static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET target, UCHAR large_motor,
-                                          UCHAR small_motor, UCHAR led_number, LPVOID user_data)
-{
-    struct active_device *active_device = (struct active_device *)user_data;
-    stadia_controller_set_vibration(active_device->src_controller_id, small_motor, large_motor);
-}
+//
+// Purpose: 
+//   Logs messages to the event log
+//
+// Parameters:
+//   szFunction - name of function that failed
+// 
+// Return value:
+//   None
+//
+// Remarks:
+//   The service must have an entry in the Application event log.
+//
+VOID SvcReportEvent(LPTSTR szFunction) 
+{ 
+    HANDLE hEventSource;
+    LPCTSTR lpszStrings[2];
+    TCHAR Buffer[80];
 
-static void refresh_cb(struct tray_menu *item)
-{
-    (void)item;
-    printf("Refresh\n");
-    fflush(stdout);
-    refresh_devices();
-}
+    hEventSource = RegisterEventSource(NULL, SVCNAME);
 
-static void quit_cb(struct tray_menu *item)
-{
-    (void)item;
-    printf("Quit\n");
-    fflush(stdout);
-    tray_exit();
-}
+    if( NULL != hEventSource )
+    {
+        StringCchPrintf(Buffer, 80, TEXT("%s failed with %d"), szFunction, GetLastError());
 
-int main()
-{
-    rebuild_tray_menu();
-    if (tray_init(&tray) < 0)
-    {
-        printf("Failed to create tray\n");
-        return 1;
-    }
-    vigem_client = vigem_alloc();
-    VIGEM_ERROR vigem_res = vigem_connect(vigem_client);
-    if (vigem_res == VIGEM_ERROR_BUS_NOT_FOUND)
-    {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
-                               TEXT("ViGEmBus not installed"));
-    }
-    else if (vigem_res == VIGEM_ERROR_BUS_VERSION_MISMATCH)
-    {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
-                               TEXT("ViGEmBus incompatible version"));
-    }
-    else if (vigem_res != VIGEM_ERROR_NONE)
-    {
-        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
-                               TEXT("Error connecting to ViGEmBus"));
-    }
-    else
-    {
-        vigem_connected = TRUE;
-    }
-    refresh_devices();
-    tray_register_device_notification(hid_get_class(), device_change_cb);
+        lpszStrings[0] = SVCNAME;
+        lpszStrings[1] = Buffer;
 
-    while (tray_loop(TRUE) == 0)
-    {
-        ;
-    }
+        ReportEvent(hEventSource,        // event log handle
+                    EVENTLOG_ERROR_TYPE, // event type
+                    0,                   // event category
+                    SVC_ERROR,           // event identifier
+                    NULL,                // no security identifier
+                    2,                   // size of lpszStrings array
+                    0,                   // no binary data
+                    lpszStrings,         // array of strings
+                    NULL);               // no binary data
 
-    AcquireSRWLockExclusive(&active_devices_lock);
-    for (int i = 0; i < active_device_count; i++)
-    {
-        hid_close_device(active_devices[i]->src_device);
-        hid_free_device(active_devices[i]->src_device);
-        if (vigem_connected)
-        {
-            vigem_target_x360_unregister_notification(active_devices[i]->tgt_device);
-            vigem_target_remove(vigem_client, active_devices[i]->tgt_device);
-            vigem_target_free(active_devices[i]->tgt_device);
-        }
-        free(active_devices[i]->tray_menu);
-        free(active_devices[i]->tray_text);
-        free(active_devices[i]);
+        DeregisterEventSource(hEventSource);
     }
-    active_device_count = 0;
-    ReleaseSRWLockExclusive(&active_devices_lock);
-    if (vigem_connected)
-    {
-        vigem_disconnect(vigem_client);
-    }
-    vigem_free(vigem_client);
-    free(tray.menu);
-    return 0;
 }
