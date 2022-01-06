@@ -1,3 +1,7 @@
+/*
+ * hid.h -- Routines for interacting with HID devices.
+ */
+
 #ifndef HID_H
 #define HID_H
 

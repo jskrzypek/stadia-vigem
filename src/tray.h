@@ -1,3 +1,7 @@
+/*
+ * tray.h -- Routines for providing the tray control.
+ */
+
 #ifndef TRAY_H
 #define TRAY_H
 

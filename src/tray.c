@@ -1,3 +1,7 @@
+/*
+ * tray.c -- Routines for providing the tray control.
+ */
+
 #include <tchar.h>
 #include <windows.h>
 #include <shellapi.h>

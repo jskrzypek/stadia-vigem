@@ -1,3 +1,7 @@
+/*
+ * main.c -- Program entry point and Stadia device mapping.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <tchar.h>
@@ -21,23 +25,21 @@
 
 struct active_device
 {
-    int index;
     struct hid_device *src_device;
     struct stadia_controller *controller;
     PVIGEM_TARGET tgt_device;
     XUSB_REPORT tgt_report;
-    LPTSTR tray_text;
-    struct tray_menu *tray_menu;
     BOOLEAN hid_hidden;
 };
 
-static int last_active_device_index = 0;
 static int active_device_count = 0;
 static struct active_device *active_devices[MAX_ACTIVE_DEVICE_COUNT];
 static SRWLOCK active_devices_lock = SRWLOCK_INIT;
 static PVIGEM_CLIENT vigem_client;
 static BOOLEAN vigem_connected = FALSE;
 static BOOLEAN hid_hide_connected = FALSE;
+
+static struct tray_menu tray_menu_device_count = {.text = TEXT("0/4 device(s) connected") };
 
 // future declarations
 static void stadia_controller_update_cb(struct stadia_controller *controller, struct stadia_state *state);
@@ -74,20 +76,18 @@ SHORT FORCEINLINE _map_byte_to_short(BYTE value, BOOLEAN inverted)
 static void rebuild_tray_menu()
 {
     struct tray_menu *prev_menu = tray.menu;
+    
+    struct tray_menu *new_menu = (struct tray_menu *)malloc(5 * sizeof(struct tray_menu));
+    int index = 0;
 
     AcquireSRWLockShared(&active_devices_lock);
-    int dyn_item_count = active_device_count > 0 ? active_device_count + 1 : 0;
-    struct tray_menu *new_menu = (struct tray_menu *)malloc((dyn_item_count + 3) * sizeof(struct tray_menu));
-    int index = 0;
-    for (; index < active_device_count; index++)
-    {
-        new_menu[index] = *active_devices[index]->tray_menu;
-    }
+
+    _stprintf((&tray_menu_device_count)->text, TEXT("%d/4 device(s) connected"), active_device_count);
+
     ReleaseSRWLockShared(&active_devices_lock);
-    if (dyn_item_count > 0)
-    {
-        new_menu[index++] = tray_menu_separator;
-    }
+
+    new_menu[index++] = tray_menu_device_count;
+    new_menu[index++] = tray_menu_separator;
     new_menu[index++] = tray_menu_refresh;
     new_menu[index++] = tray_menu_quit;
     new_menu[index++] = tray_menu_terminator;
@@ -141,7 +141,6 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 
     struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
     active_device->src_device = device;
-    active_device->index = ++last_active_device_index;
     active_device->controller = controller;
 
     if (vigem_connected)
@@ -153,12 +152,6 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
                                                 (LPVOID)active_device);
     }
 
-    int tray_text_length = _sctprintf(ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
-    active_device->tray_text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
-    _stprintf(active_device->tray_text, ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
-    active_device->tray_menu = (struct tray_menu *)malloc(sizeof(struct tray_menu));
-    memset(active_device->tray_menu, 0, sizeof(struct tray_menu));
-    active_device->tray_menu->text = active_device->tray_text;
     active_device->hid_hidden = hid_hide_bind(device->device_info) == HID_HIDE_RESULT_OK;
 
     AcquireSRWLockExclusive(&active_devices_lock);
@@ -201,8 +194,6 @@ static BOOLEAN remove_device(struct stadia_controller *controller)
                 vigem_target_free(active_devices[i]->tgt_device);
             }
 
-            free(active_devices[i]->tray_menu);
-            free(active_devices[i]->tray_text);
             free(active_devices[i]);
 
             if (i < active_device_count - 1)
@@ -437,8 +428,6 @@ int main()
             vigem_target_remove(vigem_client, active_devices[i]->tgt_device);
             vigem_target_free(active_devices[i]->tgt_device);
         }
-        free(active_devices[i]->tray_menu);
-        free(active_devices[i]->tray_text);
         free(active_devices[i]);
     }
     active_device_count = 0;
