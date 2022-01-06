@@ -23,8 +23,7 @@ struct active_device
 {
     int index;
     struct hid_device *src_device;
-    int src_controller_id;
-    int src_battery_level;
+    struct stadia_controller *controller;
     PVIGEM_TARGET tgt_device;
     XUSB_REPORT tgt_report;
     LPTSTR tray_text;
@@ -41,23 +40,22 @@ static BOOLEAN vigem_connected = FALSE;
 static BOOLEAN hid_hide_connected = FALSE;
 
 // future declarations
-static void stadia_controller_update_cb(int controller_id, struct stadia_state *state);
-static void stadia_controller_stop_cb(int controller_id, BYTE break_reason);
+static void stadia_controller_update_cb(struct stadia_controller *controller, struct stadia_state *state);
+static void stadia_controller_stop_cb(struct stadia_controller *controller);
 static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET target, UCHAR large_motor,
                                           UCHAR small_motor, UCHAR led_number, LPVOID user_data);
 static void refresh_cb(struct tray_menu *item);
 static void quit_cb(struct tray_menu *item);
 
-static const struct tray_menu tray_menu_refresh = { .text = TEXT("Refresh"), .cb = refresh_cb };
-static const struct tray_menu tray_menu_quit = { .text = TEXT("Quit"), .cb = quit_cb };
-static const struct tray_menu tray_menu_separator = { .text = TEXT("-") };
-static const struct tray_menu tray_menu_terminator = { .text = NULL };
+static const struct tray_menu tray_menu_refresh = {.text = TEXT("Refresh"), .cb = refresh_cb};
+static const struct tray_menu tray_menu_quit = {.text = TEXT("Quit"), .cb = quit_cb};
+static const struct tray_menu tray_menu_separator = {.text = TEXT("-")};
+static const struct tray_menu tray_menu_terminator = {.text = NULL};
 static struct tray tray =
-{
-    .icon = TEXT("APP_ICON"),
-    .tip = TEXT("Stadia Controller"),
-    .menu = NULL
-};
+    {
+        .icon = TEXT("APP_ICON"),
+        .tip = TEXT("Stadia Controller"),
+        .menu = NULL};
 
 SHORT FORCEINLINE _map_byte_to_short(BYTE value, BOOLEAN inverted)
 {
@@ -131,8 +129,8 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
         return FALSE;
     }
 
-    int stadia_controller_id = stadia_controller_start(device, stadia_controller_update_cb, stadia_controller_stop_cb);
-    if (stadia_controller_id < 0)
+    struct stadia_controller *controller = stadia_controller_create(device);
+    if (controller == NULL)
     {
         tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Error initializing new device"));
@@ -144,8 +142,8 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
     struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
     active_device->src_device = device;
     active_device->index = ++last_active_device_index;
-    active_device->src_controller_id = stadia_controller_id;
-    active_device->src_battery_level = -1;
+    active_device->controller = controller;
+
     if (vigem_connected)
     {
         active_device->tgt_device = vigem_target_x360_alloc();
@@ -154,6 +152,7 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
         vigem_target_x360_register_notification(vigem_client, active_device->tgt_device, x360_notification_cb,
                                                 (LPVOID)active_device);
     }
+
     int tray_text_length = _sctprintf(ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
     active_device->tray_text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
     _stprintf(active_device->tray_text, ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, BATTERY_NA_TEXT);
@@ -168,21 +167,25 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 
     rebuild_tray_menu();
     tray_update(&tray);
+
     if (!vigem_connected)
     {
         tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
                                TEXT("Device added, but emulation doesn't work due to ViGEmBus problem"));
     }
+
     return TRUE;
 }
 
-static BOOLEAN remove_device(int stadia_controller_id)
+static BOOLEAN remove_device(struct stadia_controller *controller)
 {
     BOOLEAN removed = FALSE;
+
     AcquireSRWLockExclusive(&active_devices_lock);
+
     for (int i = 0; i < active_device_count; i++)
     {
-        if (active_devices[i]->src_controller_id == stadia_controller_id)
+        if (active_devices[i]->controller == controller)
         {
             if (active_devices[i]->hid_hidden)
             {
@@ -190,42 +193,51 @@ static BOOLEAN remove_device(int stadia_controller_id)
             }
             hid_close_device(active_devices[i]->src_device);
             hid_free_device(active_devices[i]->src_device);
+
             if (vigem_connected)
             {
                 vigem_target_x360_unregister_notification(active_devices[i]->tgt_device);
                 vigem_target_remove(vigem_client, active_devices[i]->tgt_device);
                 vigem_target_free(active_devices[i]->tgt_device);
             }
+
             free(active_devices[i]->tray_menu);
             free(active_devices[i]->tray_text);
             free(active_devices[i]);
+
             if (i < active_device_count - 1)
             {
                 memmove(&active_devices[i], &active_devices[i + 1],
                         sizeof(struct active_device *) * (active_device_count - i - 1));
             }
+
             active_device_count--;
             removed = TRUE;
+
             break;
         }
     }
+
     ReleaseSRWLockExclusive(&active_devices_lock);
+
     return removed;
 }
 
 static void refresh_devices()
 {
-    LPTSTR stadia_hw_path_filters[3] = { STADIA_HW_FILTER, NULL };
+    LPTSTR stadia_hw_path_filters[3] = {STADIA_HW_FILTER, NULL};
     struct hid_device_info *device_info = hid_enumerate(stadia_hw_path_filters);
     struct hid_device_info *cur;
     BOOLEAN found = FALSE;
 
     // remove missing devices
     AcquireSRWLockShared(&active_devices_lock);
+
     for (int i = 0; i < active_device_count; i++)
     {
         found = FALSE;
         cur = device_info;
+
         while (cur != NULL)
         {
             if (_tcscmp(active_devices[i]->src_device->device_info->symlink, cur->symlink) == 0)
@@ -233,13 +245,16 @@ static void refresh_devices()
                 found = TRUE;
                 break;
             }
+
             cur = cur->next;
         }
+
         if (!found)
         {
-            stadia_controller_stop(active_devices[i]->src_controller_id);
+            stadia_controller_destroy(active_devices[i]->controller);
         }
     }
+
     ReleaseSRWLockShared(&active_devices_lock);
 
     // add new devices
@@ -275,23 +290,16 @@ static void refresh_devices()
 
 static void device_change_cb(UINT op, LPTSTR path)
 {
-    // refresh devices regardless operation type
-#ifdef UNICODE
-    printf("Device operation %d with path %S\n", op, path);
-#else
-    printf("Device operation %d with path %s\n", op, path);
-#endif
-    fflush(stdout);
     refresh_devices();
 }
 
-static void stadia_controller_update_cb(int controller_id, struct stadia_state *state)
+static void stadia_controller_update_cb(struct stadia_controller *controller, struct stadia_state *state)
 {
     struct active_device *active_device = NULL;
     AcquireSRWLockShared(&active_devices_lock);
     for (int i = 0; i < active_device_count; i++)
     {
-        if (active_devices[i]->src_controller_id == controller_id)
+        if (active_devices[i]->controller == controller)
         {
             active_device = active_devices[i];
             break;
@@ -302,20 +310,6 @@ static void stadia_controller_update_cb(int controller_id, struct stadia_state *
     if (active_device == NULL)
     {
         return;
-    }
-
-    if (active_device->src_battery_level != state->battery)
-    {
-        active_device->src_battery_level = state->battery;
-        TCHAR battery_buffer[5];
-        _stprintf(battery_buffer, TEXT("%d%%"), active_device->src_battery_level);
-        int tray_text_length = _sctprintf(ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, battery_buffer);
-        free(active_device->tray_text);
-        active_device->tray_text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
-        _stprintf(active_device->tray_text, ACTIVE_DEVICE_MENU_TEMPLATE, active_device->index, battery_buffer);
-        active_device->tray_menu->text = active_device->tray_text;
-        rebuild_tray_menu();
-        tray_update(&tray);
     }
 
     if (vigem_connected)
@@ -329,15 +323,15 @@ static void stadia_controller_update_cb(int controller_id, struct stadia_state *
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_OPTIONS) != 0 ? XUSB_GAMEPAD_BACK : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LS) != 0 ? XUSB_GAMEPAD_LEFT_THUMB : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RS) != 0 ? XUSB_GAMEPAD_RIGHT_THUMB : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_L1) != 0 ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;
-        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_R1) != 0 ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_LB) != 0 ? XUSB_GAMEPAD_LEFT_SHOULDER : 0;
+        active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_RB) != 0 ? XUSB_GAMEPAD_RIGHT_SHOULDER : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_A) != 0 ? XUSB_GAMEPAD_A : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_B) != 0 ? XUSB_GAMEPAD_B : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_X) != 0 ? XUSB_GAMEPAD_X : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_Y) != 0 ? XUSB_GAMEPAD_Y : 0;
         active_device->tgt_report.wButtons |= (state->buttons & STADIA_BUTTON_STADIA_BTN) != 0 ? XUSB_GAMEPAD_GUIDE : 0;
-        active_device->tgt_report.bLeftTrigger = state->l2_trigger;
-        active_device->tgt_report.bRightTrigger = state->r2_trigger;
+        active_device->tgt_report.bLeftTrigger = state->left_trigger;
+        active_device->tgt_report.bRightTrigger = state->right_trigger;
         active_device->tgt_report.sThumbLX = _map_byte_to_short(state->left_stick_x, FALSE);
         active_device->tgt_report.sThumbLY = _map_byte_to_short(state->left_stick_y, TRUE);
         active_device->tgt_report.sThumbRX = _map_byte_to_short(state->right_stick_x, FALSE);
@@ -346,34 +340,13 @@ static void stadia_controller_update_cb(int controller_id, struct stadia_state *
     }
 }
 
-static void stadia_controller_stop_cb(int controller_id, BYTE break_reason)
+static void stadia_controller_stop_cb(struct stadia_controller *controller)
 {
-    UINT ntf_type = break_reason == STADIA_BREAK_REASON_REQUESTED ? NT_TRAY_INFO : NT_TRAY_WARNING;
     LPTSTR ntf_text;
-    if (remove_device(controller_id))
+    if (remove_device(controller))
     {
         rebuild_tray_menu();
         tray_update(&tray);
-
-        switch (break_reason)
-        {
-        case STADIA_BREAK_REASON_REQUESTED:
-            return;
-        case STADIA_BREAK_REASON_INIT_ERROR:
-            ntf_text = TEXT("Error initializing device");
-            break;
-        case STADIA_BREAK_REASON_READ_ERROR:
-            ntf_text = TEXT("Error reading data");
-            break;
-        case STADIA_BREAK_REASON_WRITE_ERROR:
-            ntf_text = TEXT("Error writing data");
-            break;
-        default:
-            ntf_text = TEXT("Unknown error");
-            break;
-        }
-
-        tray_show_notification(ntf_type, TEXT("Stadia Controller error"), ntf_text);
     }
 }
 
@@ -381,13 +354,12 @@ static void CALLBACK x360_notification_cb(PVIGEM_CLIENT client, PVIGEM_TARGET ta
                                           UCHAR small_motor, UCHAR led_number, LPVOID user_data)
 {
     struct active_device *active_device = (struct active_device *)user_data;
-    stadia_controller_set_vibration(active_device->src_controller_id, small_motor, large_motor);
+    stadia_controller_set_vibration(active_device->controller, small_motor, large_motor);
 }
 
 static void refresh_cb(struct tray_menu *item)
 {
     (void)item;
-    printf("Refresh\n");
     fflush(stdout);
     refresh_devices();
 }
@@ -395,7 +367,6 @@ static void refresh_cb(struct tray_menu *item)
 static void quit_cb(struct tray_menu *item)
 {
     (void)item;
-    printf("Quit\n");
     fflush(stdout);
     tray_exit();
 }
@@ -439,6 +410,10 @@ int main()
     {
         hid_hide_connected = TRUE;
     }
+
+    stadia_update_callback = stadia_controller_update_cb;
+    stadia_destroy_callback = stadia_controller_stop_cb;
+
     refresh_devices();
     tray_register_device_notification(hid_get_interface_guid(), device_change_cb);
 

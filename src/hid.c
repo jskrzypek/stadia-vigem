@@ -1,3 +1,7 @@
+#include "hid.h"
+
+#include "utils.h"
+
 #include <tchar.h>
 #include <initguid.h>
 #include <windows.h>
@@ -6,9 +10,6 @@
 #include <devpkey.h>
 #include <cfgmgr32.h>
 #include <devguid.h>
-
-#include "hid.h"
-#include "utils.h"
 
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "hid.lib")
@@ -241,8 +242,6 @@ BOOLEAN hid_reenable_device(struct hid_device_info *device_info)
     }
 
     SP_PROPCHANGE_PARAMS pc_params =
-    {
-        .ClassInstallHeader =
         {
             .cbSize = sizeof(SP_CLASSINSTALL_HEADER),
             .InstallFunction = DIF_PROPERTYCHANGE
@@ -271,9 +270,8 @@ BOOLEAN check_vendor_and_product(struct hid_device_info *device_info, USHORT ven
     {
         BOOLEAN matched = FALSE;
         HIDD_ATTRIBUTES attributes =
-        {
-            .Size = sizeof(HIDD_ATTRIBUTES)
-        };
+            {
+                .Size = sizeof(HIDD_ATTRIBUTES)};
         if (HidD_GetAttributes(dev_handle, &attributes))
         {
             matched = (vendor_id == 0x0 || attributes.VendorID == vendor_id) && (product_id == 0x0 || attributes.ProductID == product_id);
@@ -370,6 +368,9 @@ struct hid_device *hid_open_device(struct hid_device_info *device_info, BOOLEAN 
     memset(&dev->input_ol, 0, sizeof(OVERLAPPED));
     dev->input_ol.hEvent = CreateEvent(&security, FALSE, FALSE, NULL);
 
+    memset(&dev->output_ol, 0, sizeof(OVERLAPPED));
+    dev->output_ol.hEvent = CreateEvent(&security, FALSE, FALSE, NULL);
+
     return dev;
 }
 
@@ -417,28 +418,50 @@ INT hid_get_input_report(struct hid_device *device, DWORD timeout)
     return -1;
 }
 
-INT hid_send_output_report(struct hid_device *device, const void *data, size_t length)
+INT hid_send_output_report(struct hid_device *device, const void *data, size_t length, DWORD timeout)
 {
-    DWORD bytes_written;
-    OVERLAPPED ol;
-    memset(&ol, 0, sizeof(OVERLAPPED));
+    DWORD bytes_written = 0;
+    HANDLE ev = device->output_ol.hEvent;
 
-    memset(device->output_buffer, 0x0, device->output_report_size);
-    memmove(device->output_buffer, data, length > device->output_report_size ? device->output_report_size : length);
-
-    if (!WriteFile(device->handle, device->output_buffer, device->output_report_size, &bytes_written, &ol))
+    if (!device->write_pending)
     {
-        if (GetLastError() != ERROR_IO_PENDING)
+        device->write_pending = TRUE;
+
+        memset(device->output_buffer, 0x0, device->output_report_size);
+        memmove(device->output_buffer, data, length > device->output_report_size ? device->output_report_size : length);
+
+        ResetEvent(ev);
+        if (!WriteFile(device->handle, device->output_buffer, device->output_report_size, &bytes_written, &device->output_ol))
         {
-            return -1;
+            if (GetLastError() != ERROR_IO_PENDING)
+            {
+                CancelIo(device->handle);
+                device->write_pending = FALSE;
+                return -1;
+            }
         }
     }
 
-    if (GetOverlappedResult(device->handle, &ol, &bytes_written, TRUE))
+    if (timeout >= 0)
     {
-        return bytes_written;
+        if (WaitForSingleObject(ev, timeout) != WAIT_OBJECT_0)
+        {
+            /* There was no data this time. Return zero bytes written,
+            but leave the Overlapped I/O running. */
+            return 0;
+        }
     }
 
+    /* Either WaitForSingleObject() told us that WriteFile has completed, or
+    we are in non-blocking mode. Get the number of bytes written. The actual
+    data was passed to WriteFile(). */
+    if (GetOverlappedResult(device->handle, &device->output_ol, &bytes_written, TRUE))
+    {
+        device->write_pending = FALSE;
+        return bytes_written;
+    }
+    
+    device->write_pending = FALSE;
     return -1;
 }
 
@@ -448,7 +471,6 @@ INT hid_send_feature_report(struct hid_device *device, const void *data, size_t 
     {
         memset(device->feature_buffer, 0, device->feature_report_size);
         memmove(device->feature_buffer, data, length);
-
     }
     else
     {
@@ -465,6 +487,7 @@ void hid_close_device(struct hid_device *device)
 {
     CancelIoEx(device->handle, NULL);
     CloseHandle(device->input_ol.hEvent);
+    CloseHandle(device->output_ol.hEvent);
     CloseHandle(device->handle);
 }
 

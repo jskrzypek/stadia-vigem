@@ -22,6 +22,8 @@ struct hid_device
     HANDLE handle;
 
     BOOLEAN read_pending;
+    BOOLEAN write_pending;
+
     USHORT input_report_size;
     USHORT output_report_size;
     USHORT feature_report_size;
@@ -30,6 +32,7 @@ struct hid_device
     BYTE *feature_buffer;
 
     OVERLAPPED input_ol;
+    OVERLAPPED output_ol;
 };
 
 GUID hid_get_interface_guid();
@@ -40,7 +43,7 @@ struct hid_device_info *hid_clone_device_info(struct hid_device_info *device_inf
 void hid_free_device_info(struct hid_device_info *device_info);
 struct hid_device *hid_open_device(struct hid_device_info *device_info, BOOLEAN access_rw, BOOLEAN shared);
 INT hid_get_input_report(struct hid_device *device, DWORD timeout);
-INT hid_send_output_report(struct hid_device *device, const void *data, size_t length);
+INT hid_send_output_report(struct hid_device *device, const void *data, size_t length, DWORD timeout);
 INT hid_send_feature_report(struct hid_device *device, const void *data, size_t length);
 void hid_close_device(struct hid_device *device);
 void hid_free_device(struct hid_device *device);
