@@ -20,8 +20,7 @@
 #endif
 
 #define MAX_ACTIVE_DEVICE_COUNT 4
-#define ACTIVE_DEVICE_MENU_TEMPLATE TEXT("%d. Stadia Controller")
-#define BATTERY_NA_TEXT TEXT("N/A")
+#define DEVICE_COUNT_TEMPLATE TEXT("%d/4 device(s) connected")
 
 struct active_device
 {
@@ -39,7 +38,7 @@ static PVIGEM_CLIENT vigem_client;
 static BOOLEAN vigem_connected = FALSE;
 static BOOLEAN hid_hide_connected = FALSE;
 
-static struct tray_menu tray_menu_device_count = {.text = TEXT("0/4 device(s) connected") };
+static struct tray_menu tray_menu_device_count;
 
 // future declarations
 static void stadia_controller_update_cb(struct stadia_controller *controller, struct stadia_state *state);
@@ -82,7 +81,13 @@ static void rebuild_tray_menu()
 
     AcquireSRWLockShared(&active_devices_lock);
 
-    _stprintf((&tray_menu_device_count)->text, TEXT("%d/4 device(s) connected"), active_device_count);
+    LPTSTR old_device_count_text = tray_menu_device_count.text;
+
+    INT tray_text_length = _sctprintf(DEVICE_COUNT_TEMPLATE, active_device_count);
+    tray_menu_device_count.text = (LPTSTR)malloc((tray_text_length + 1) * sizeof(TCHAR));
+    _stprintf(tray_menu_device_count.text, DEVICE_COUNT_TEMPLATE, active_device_count);
+
+    free(old_device_count_text);
 
     ReleaseSRWLockShared(&active_devices_lock);
 
@@ -362,7 +367,7 @@ static void quit_cb(struct tray_menu *item)
     tray_exit();
 }
 
-int main()
+INT main()
 {
     rebuild_tray_menu();
     if (tray_init(&tray) < 0)
@@ -414,7 +419,7 @@ int main()
     }
 
     AcquireSRWLockExclusive(&active_devices_lock);
-    for (int i = 0; i < active_device_count; i++)
+    for (INT i = 0; i < active_device_count; i++)
     {
         if (active_devices[i]->hid_hidden)
         {

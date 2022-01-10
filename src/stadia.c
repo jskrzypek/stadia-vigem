@@ -203,7 +203,7 @@ void stadia_controller_destroy(struct stadia_controller *controller)
     controller->active = FALSE;
     SetEvent(controller->stopping_event);
 
-    int thread_count = 0;
+    INT thread_count = 0;
     HANDLE threads[2];
 
     WaitForMultipleObjects(2, threads, TRUE, INFINITE);
@@ -221,7 +221,7 @@ void stadia_controller_destroy(struct stadia_controller *controller)
     CloseHandle(controller->stopping_event);
     CloseHandle(controller->output_event);
 
-    for (int i = 0; i < thread_count; i++)
+    for (INT i = 0; i < thread_count; i++)
     {
         CloseHandle(threads[i]);
     }

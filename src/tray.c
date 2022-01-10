@@ -19,7 +19,7 @@
 
 static WNDCLASSEX wc;
 static NOTIFYICONDATA nid;
-static HWND hwnd = NULL;
+static HWND window_handle = NULL;
 static HMENU hmenu = NULL;
 static HANDLE hmutex;
 static HDEVNOTIFY hdevntf;
@@ -45,7 +45,7 @@ static LRESULT CALLBACK _tray_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             POINT p;
             GetCursorPos(&p);
             SetForegroundWindow(hwnd);
-            WORD cmd = TrackPopupMenu(hmenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+            BOOL cmd = TrackPopupMenu(hmenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
                                       p.x, p.y, 0, hwnd, NULL);
             SendMessage(hwnd, WM_COMMAND, cmd, 0);
             return 0;
@@ -97,12 +97,12 @@ static LRESULT CALLBACK _tray_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
 
 static HMENU _tray_menu(struct tray_menu *m, UINT *id)
 {
-    HMENU hmenu = CreatePopupMenu();
+    HMENU new_menu = CreatePopupMenu();
     for (; m != NULL && m->text != NULL; m++, (*id)++)
     {
         if (_tcscmp(m->text, TEXT("-")) == 0)
         {
-            InsertMenu(hmenu, *id, MF_SEPARATOR, TRUE, TEXT(""));
+            InsertMenu(new_menu, *id, MF_SEPARATOR, TRUE, TEXT(""));
         }
         else
         {
@@ -129,10 +129,10 @@ static HMENU _tray_menu(struct tray_menu *m, UINT *id)
             item.dwTypeData = m->text;
             item.dwItemData = (ULONG_PTR)m;
 
-            InsertMenuItem(hmenu, *id, TRUE, &item);
+            InsertMenuItem(new_menu, *id, TRUE, &item);
         }
     }
-    return hmenu;
+    return new_menu;
 }
 
 int tray_init(struct tray *tray)
@@ -153,16 +153,16 @@ int tray_init(struct tray *tray)
         return -1;
     }
 
-    hwnd = CreateWindowEx(0, WC_TRAY_CLASS_NAME, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    if (hwnd == NULL)
+    window_handle = CreateWindowEx(0, WC_TRAY_CLASS_NAME, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    if (window_handle == NULL)
     {
         return -1;
     }
-    UpdateWindow(hwnd);
+    UpdateWindow(window_handle);
 
     memset(&nid, 0, sizeof(nid));
     nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = hwnd;
+    nid.hWnd = window_handle;
     nid.uID = 0;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY_CALLBACK_MESSAGE;
@@ -197,7 +197,7 @@ void tray_update(struct tray *tray)
     HMENU prevmenu = hmenu;
     UINT id = ID_TRAY_FIRST;
     hmenu = _tray_menu(tray->menu, &id);
-    SendMessage(hwnd, WM_INITMENUPOPUP, (WPARAM)hmenu, 0);
+    SendMessage(window_handle, WM_INITMENUPOPUP, (WPARAM)hmenu, 0);
     HICON hicon = LoadIcon(wc.hInstance, tray->icon);
     if (nid.hIcon)
     {
@@ -225,7 +225,7 @@ void tray_exit()
         DestroyMenu(hmenu);
     }
     PostQuitMessage(0);
-    hwnd = NULL;
+    window_handle = NULL;
     UnregisterClass(WC_TRAY_CLASS_NAME, GetModuleHandle(NULL));
     ReleaseMutex(hmutex);
     CloseHandle(hmutex);
@@ -233,7 +233,7 @@ void tray_exit()
 
 void tray_register_device_notification(GUID filter, void (*cb)(UINT, LPTSTR))
 {
-    if (hwnd == NULL)
+    if (window_handle == NULL)
     {
         return;
     }
@@ -244,7 +244,7 @@ void tray_register_device_notification(GUID filter, void (*cb)(UINT, LPTSTR))
     dbdi.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
     dbdi.dbcc_classguid = filter;
 
-    hdevntf = RegisterDeviceNotification(hwnd, &dbdi, DEVICE_NOTIFY_WINDOW_HANDLE);
+    hdevntf = RegisterDeviceNotification(window_handle, &dbdi, DEVICE_NOTIFY_WINDOW_HANDLE);
     if (hdevntf != NULL)
     {
         devntf_cb = cb;
@@ -253,7 +253,7 @@ void tray_register_device_notification(GUID filter, void (*cb)(UINT, LPTSTR))
 
 void tray_show_notification(UINT type, LPTSTR title, LPTSTR text)
 {
-    if (hwnd == NULL)
+    if (window_handle == NULL)
     {
         return;
     }
