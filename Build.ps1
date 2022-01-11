@@ -12,6 +12,11 @@ $script:ReleaseFlags = @("/GL", "/O2")
 $script:OutputName = "stadia-vigem-"
 
 function Import-Prerequisites {
+
+    if ($SkipBuildToolsSetup -eq $true) {
+        return
+    }
+
     if (Get-Module -ListAvailable -Name VSSetup) {
         Update-Module -Name VSSetup
     } else {
