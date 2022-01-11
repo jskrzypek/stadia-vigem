@@ -11,6 +11,14 @@ $script:ReleaseFlags = @("/GL", "/O2")
 $script:OutputName = "stadia-vigem-"
 
 function Import-Prerequisites {
+    if (Get-Module -ListAvailable -Name VSSetup) {
+        Update-Module -Name VSSetup
+    } else {
+        Install-Module -Name VSSetup -Scope CurrentUser -Force
+    }
+
+    Import-Module -Name VSSetup
+
     if (Get-Module -ListAvailable -Name WintellectPowerShell) {
         Update-Module -Name WintellectPowerShell
     } else {
