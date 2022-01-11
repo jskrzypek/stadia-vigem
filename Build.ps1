@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param (
     [Parameter()][ValidateSet("DEBUG", "RELEASE")][string]$Configuration = "DEBUG",
-    [Parameter()][ValidateSet("x86", "x64")][string]$Architecture = "x86"
+    [Parameter()][ValidateSet("x86", "x64")][string]$Architecture = "x86",
     [Parameter()][bool]$SkipBuildToolsSetup = False
 )
 
