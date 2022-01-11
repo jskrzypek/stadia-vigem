@@ -2,6 +2,7 @@
 param (
     [Parameter()][ValidateSet("DEBUG", "RELEASE")][string]$Configuration = "DEBUG",
     [Parameter()][ValidateSet("x86", "x64")][string]$Architecture = "x86"
+    [Parameter()][bool]$SkipBuildToolsSetup = False
 )
 
 $script:CommonFlags = @("/Zi", "/W4", "/EHsc", "/DWIN32", "/D_UNICODE", "/DUNICODE")
@@ -32,6 +33,10 @@ function Invoke-BuildTools {
     param (
         $Architecture
     )
+    
+    if ($SkipBuildToolsSetup -eq True) {
+        return
+    }
 
     $latestVsInstallationInfo = Get-VSSetupInstance -All | Sort-Object -Property InstallationVersion -Descending | Select-Object -First 1
     
