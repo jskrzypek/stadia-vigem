@@ -25,10 +25,23 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Configure build for x64
       - name: Enable Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1.10.0
+        with:
+          arch: amd64
 
-      # Runs a single command using the runners shell
+      # Run build
       - name: Run build (x64)
         shell: pwsh
         run: .\Build.ps1 RELEASE x64 $True
+        
+      - name: Configure build for x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_x86
+          
+      # Run build
+      - name: Run build (x86)
+        shell: pwsh
+        run: .\Build.ps1 RELEASE x86 $True
