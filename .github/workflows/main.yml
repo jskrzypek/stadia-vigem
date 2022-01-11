@@ -29,4 +29,4 @@ jobs:
       # Runs a single command using the runners shell
       - name: Run build (x64)
         shell: pwsh
-        run: .\Build.ps1 RELEASE x64 True
+        run: .\Build.ps1 RELEASE x64 $True
