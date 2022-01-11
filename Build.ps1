@@ -2,7 +2,7 @@
 param (
     [Parameter()][ValidateSet("DEBUG", "RELEASE")][string]$Configuration = "DEBUG",
     [Parameter()][ValidateSet("x86", "x64")][string]$Architecture = "x86",
-    [Parameter()][bool]$SkipBuildToolsSetup = False
+    [Parameter()][bool]$SkipBuildToolsSetup = $false
 )
 
 $script:CommonFlags = @("/Zi", "/W4", "/EHsc", "/DWIN32", "/D_UNICODE", "/DUNICODE")
@@ -34,7 +34,7 @@ function Invoke-BuildTools {
         $Architecture
     )
     
-    if ($SkipBuildToolsSetup -eq True) {
+    if ($SkipBuildToolsSetup -eq $true) {
         return
     }
 
