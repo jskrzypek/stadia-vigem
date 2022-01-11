@@ -26,8 +26,7 @@ jobs:
           submodules: recursive
 
       - name: Configure build for x64
-      - name: Enable Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1.10.0
+        uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
 
