@@ -298,6 +298,7 @@ static void stadia_controller_update_cb(struct stadia_controller *controller, st
             break;
         }
     }
+    
     ReleaseSRWLockShared(&active_devices_lock);
 
     if (active_device == NULL)
@@ -402,7 +403,7 @@ INT main()
 
     while (tray_loop(TRUE) == 0)
     {
-        ;
+     ;
     }
 
     AcquireSRWLockExclusive(&active_devices_lock);

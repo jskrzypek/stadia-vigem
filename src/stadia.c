@@ -36,6 +36,17 @@ static const DWORD dpad_map[8] =
 
 static int last_error = 0;
 
+static void activate_home_button()
+{
+    DWORD value = 0x00000001;
+    HKEY key;
+    if(RegOpenKeyEx(HKEY_CURRENT_USER, TEXT("Software\\Microsoft\\GameBar"), 0,KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+    {
+        RegSetKeyValueW(key, NULL,TEXT("UseNexusForGameBarEnabled"),REG_DWORD,(LPBYTE)&value, sizeof(value));
+        RegCloseKey(key);
+    }
+}
+
 static DWORD WINAPI _stadia_input_thread(LPVOID lparam)
 {
     struct stadia_controller *controller = (struct stadia_controller *)lparam;
@@ -44,7 +55,7 @@ static DWORD WINAPI _stadia_input_thread(LPVOID lparam)
     while (controller->active)
     {
         while ((bytes_read = hid_get_input_report(controller->device, STADIA_READ_TIMEOUT)) == 0)
-            ;
+            activate_home_button();
 
         if (bytes_read < 0)
         {

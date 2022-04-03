@@ -64,7 +64,7 @@ function Invoke-Build {
     $StopWatch.Start()
 
     & "rc.exe" /foobj/stadia-vigem.res res/res.rc
-    & "cl.exe" $Flags $CommonFlags /IViGEmClient/include /Foobj/ /Febin/$OutputName ViGEmClient/src/*.cpp obj/stadia-vigem.res src/*.c
+    & "cl.exe" $Flags $CommonFlags advapi32.lib /IViGEmClient/include /Foobj/ /Febin/$OutputName ViGEmClient/src/*.cpp obj/stadia-vigem.res src/*.c
 
     $StopWatch.Stop()
 

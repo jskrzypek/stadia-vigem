@@ -51,7 +51,7 @@ struct stadia_state
 
 struct stadia_controller
 {
-        struct hid_device *device;
+    struct hid_device *device;
 
     SRWLOCK state_lock;
     struct stadia_state state;
