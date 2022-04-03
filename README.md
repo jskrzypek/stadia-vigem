@@ -1,3 +1,5 @@
+This is for my personnal fix for Windows 11.
+
 # Stadia-ViGEm
 
 Xbox 360 controller emulation for Stadia controller. Supports multiple devices and vibration. Forked from Mi-ViGEm (https://github.com/grayver/Mi-ViGEm) by grayver.
