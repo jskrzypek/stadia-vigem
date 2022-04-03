@@ -49,7 +49,25 @@ struct stadia_state
     BYTE right_trigger;
 };
 
-struct stadia_controller;
+struct stadia_controller
+{
+        struct hid_device *device;
+
+    SRWLOCK state_lock;
+    struct stadia_state state;
+
+    BOOL active;
+    HANDLE stopping_event;
+    HANDLE output_event;
+
+    SRWLOCK vibration_lock;
+    BYTE small_motor;
+    BYTE big_motor;
+
+    HANDLE input_thread;
+    HANDLE output_thread;
+    BOOL vibration_active;
+};
 
 struct stadia_controller *stadia_controller_create(struct hid_device *device);
 void stadia_controller_set_vibration(struct stadia_controller *controller, BYTE small_motor, BYTE big_motor);

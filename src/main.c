@@ -126,21 +126,27 @@ static BOOL add_device(LPTSTR path)
 
     if (device == NULL)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("Error opening new device"));
         return FALSE;
     }
 
     struct stadia_controller *controller = stadia_controller_create(device);
+
     if (controller == NULL)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("Error initializing new device"));
         hid_close_device(device);
         hid_free_device(device);
+        
         return FALSE;
     }
-
+    if(!controller->vibration_active)
+    {
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller warning"),
+                               TEXT("Error while initializing vibration."));
+    }
     struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
     active_device->src_device = device;
     active_device->controller = controller;

@@ -32,7 +32,7 @@
     },
     {
       "type": "shell",
-      "label": "Build debug binary (x64)",
+      "label": "Build debug binary",
       "command": "./Build.ps1",
       "args": [
         "DEBUG",
