@@ -1,4 +1,4 @@
-This is for my personnal fix for Windows 11.
+This is my personnal fix for Windows 11.
 
 # Stadia-ViGEm
 
