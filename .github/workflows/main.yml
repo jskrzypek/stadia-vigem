@@ -44,3 +44,15 @@ jobs:
       - name: Run build (x86)
         shell: pwsh
         run: .\Build.ps1 RELEASE x86 $True
+
+      - name: Upload x64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: stadia-vigem-x64.exe 
+          path: bin
+
+      - name: Upload x86 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: stadia-vigem-x86.exe 
+          path: bin

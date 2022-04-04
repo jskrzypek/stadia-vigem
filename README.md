@@ -1,3 +1,5 @@
+This is a fork of https://github.com/walkco/stadia-vigem
+
 # Stadia-ViGEm
 
 Xbox 360 controller emulation for Stadia controller. Supports multiple devices and vibration. Forked from Mi-ViGEm (https://github.com/grayver/Mi-ViGEm) by grayver.
