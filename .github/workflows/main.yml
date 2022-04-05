@@ -48,11 +48,9 @@ jobs:
       - name: Upload x64 artifact
         uses: actions/upload-artifact@v3
         with:
-          name: stadia-vigem-x64.exe 
-          path: bin
+          path: bin/stadia-vigem-x64.exe
 
       - name: Upload x86 artifact
         uses: actions/upload-artifact@v3
         with:
-          name: stadia-vigem-x86.exe 
-          path: bin
+          path: bin/stadia-vigem-x86.exe
