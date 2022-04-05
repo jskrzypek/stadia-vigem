@@ -1,3 +1,5 @@
+<img src="res/stadia.svg" alt="drawing" width="250"/>
+
 This is a fork of https://github.com/walkco/stadia-vigem
 
 # Stadia-ViGEm
