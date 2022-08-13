@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param (
     [Parameter()][ValidateSet("DEBUG", "RELEASE")][string]$Configuration = "DEBUG",
-    [Parameter()][ValidateSet("x86", "x64")][string]$Architecture = "x86",
+    [Parameter()][ValidateSet("x86", "x64", "arm")][string]$Architecture = "x86",
     [Parameter()][bool]$SkipBuildToolsSetup = $false
 )
 
@@ -64,7 +64,7 @@ function Invoke-Build {
     $StopWatch.Start()
 
     & "rc.exe" /foobj/stadia-vigem.res res/res.rc
-    & "cl.exe" $Flags $CommonFlags /IViGEmClient/include /Foobj/ /Febin/$OutputName ViGEmClient/src/*.cpp obj/stadia-vigem.res src/*.c
+    & "cl.exe" $Flags $CommonFlags advapi32.lib /IViGEmClient/include /Foobj/ /Febin/$OutputName ViGEmClient/src/*.cpp obj/stadia-vigem.res src/*.c
 
     $StopWatch.Stop()
 
@@ -89,6 +89,11 @@ if ($Architecture -eq "x86" -Or $Architecture -eq "ALL") {
 if ($Architecture -eq "x64" -Or $Architecture -eq "ALL") {
     Invoke-BuildTools -Architecture "x64"
     Invoke-Build -Architecture "x64"
+}
+
+if ($Architecture -eq "arm" -Or $Architecture -eq "ALL") {
+    Invoke-BuildTools -Architecture "arm"
+    Invoke-Build -Architecture "arm"
 }
 
 Write-Host "-- Build completed. --"

@@ -32,6 +32,22 @@
     },
     {
       "type": "shell",
+      "label": "Build debug binary (arm)",
+      "command": "./Build.ps1",
+      "args": [
+        "DEBUG",
+        "arm"
+      ],
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "shell",
       "label": "Build debug binary (x64)",
       "command": "./Build.ps1",
       "args": [
@@ -69,6 +85,22 @@
       "args": [
         "RELEASE",
         "x64"
+      ],
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "shell",
+      "label": "Build release binary (arm)",
+      "command": "./Build.ps1",
+      "args": [
+        "RELEASE",
+        "arm"
       ],
       "problemMatcher": [
         "$msCompile"

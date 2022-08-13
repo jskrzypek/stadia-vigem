@@ -40,6 +40,8 @@ static BOOLEAN hid_hide_connected = FALSE;
 
 static struct tray_menu tray_menu_device_count;
 
+static struct tray_menu tray_menu_device_count;
+
 // future declarations
 static void stadia_controller_update_cb(struct stadia_controller *controller, struct stadia_state *state);
 static void stadia_controller_stop_cb(struct stadia_controller *controller);
@@ -129,21 +131,27 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
 
     if (device == NULL)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("Error opening new device"));
         return FALSE;
     }
 
     struct stadia_controller *controller = stadia_controller_create(device);
+
     if (controller == NULL)
     {
-        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller error"),
+        tray_show_notification(NT_TRAY_ERROR, TEXT("Stadia Controller error"),
                                TEXT("Error initializing new device"));
         hid_close_device(device);
         hid_free_device(device);
+        
         return FALSE;
     }
-
+    if(!controller->vibration_active)
+    {
+        tray_show_notification(NT_TRAY_WARNING, TEXT("Stadia Controller warning"),
+                               TEXT("Error while initializing vibration."));
+    }
     struct active_device *active_device = (struct active_device *)malloc(sizeof(struct active_device));
     active_device->src_device = device;
     active_device->controller = controller;
@@ -175,9 +183,9 @@ static BOOLEAN add_device(struct hid_device_info *device_info)
     return TRUE;
 }
 
-static BOOLEAN remove_device(struct stadia_controller *controller)
+static BOOL remove_device(struct stadia_controller *controller)
 {
-    BOOLEAN removed = FALSE;
+    BOOL removed = FALSE;
 
     AcquireSRWLockExclusive(&active_devices_lock);
 
@@ -301,6 +309,7 @@ static void stadia_controller_update_cb(struct stadia_controller *controller, st
             break;
         }
     }
+    
     ReleaseSRWLockShared(&active_devices_lock);
 
     if (active_device == NULL)
@@ -396,6 +405,7 @@ INT main()
     {
         vigem_connected = TRUE;
     }
+<<<<<<< HEAD
     int hid_hide_res = hid_hide_init();
     if (hid_hide_res == HID_HIDE_INIT_ERROR)
     {
@@ -406,6 +416,8 @@ INT main()
     {
         hid_hide_connected = TRUE;
     }
+=======
+>>>>>>> Simon-Duglet/master
 
     stadia_update_callback = stadia_controller_update_cb;
     stadia_destroy_callback = stadia_controller_stop_cb;
@@ -415,7 +427,7 @@ INT main()
 
     while (tray_loop(TRUE) == 0)
     {
-        ;
+     ;
     }
 
     AcquireSRWLockExclusive(&active_devices_lock);

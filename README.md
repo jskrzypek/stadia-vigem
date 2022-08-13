@@ -1,11 +1,15 @@
 # Stadia-ViGEm
 
+# Stadia-ViGEm
+
 Xbox 360 controller emulation for Stadia controller. Supports multiple devices and vibration. Forked from Mi-ViGEm (https://github.com/grayver/Mi-ViGEm) by grayver.
 Xbox 360 emulation driver is provided by ViGEm (https://github.com/ViGEm/ViGEmBus), by Benjamin Höglinger.
 
 ## Requirements
-- Windows 10 (should work on Windows 7 and 8 also)
+- Windows 10/11 (should work on Windows 7 and 8 also)
 - ViGEm bus installed (can be downloaded [here](https://github.com/ViGEm/ViGEmBus/releases))
+
+Notice for Windows 11: Vibration might not works with your controller. 
 
 ## How it works
 Stadia-ViGEm program at start scans for Stadia Controllers and then proxies found Stadia Controllers to virtual Xbox 360 gamepads (with help from ViGEmBus). Also Stadia-ViGEm subscribes to system device plug/unplug notifications and rescans for devices on each notification.
