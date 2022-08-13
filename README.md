@@ -1,3 +1,7 @@
+<img src="res/stadia.svg" alt="drawing" width="250"/>
+
+This is a fork of https://github.com/walkco/stadia-vigem
+
 # Stadia-ViGEm
 
 # Stadia-ViGEm
@@ -12,10 +16,21 @@ Xbox 360 emulation driver is provided by ViGEm (https://github.com/ViGEm/ViGEmBu
 Notice for Windows 11: Vibration might not works with your controller. 
 
 ## How it works
+
 Stadia-ViGEm program at start scans for Stadia Controllers and then proxies found Stadia Controllers to virtual Xbox 360 gamepads (with help from ViGEmBus). Also Stadia-ViGEm subscribes to system device plug/unplug notifications and rescans for devices on each notification.
 All found devices are displayed in the tray icon context menu. Manual device rescan can be initiated via the tray icon context menu.
 
+### Running at Startup
+
+To run at Windows startup:
+
+1. Right click on the `.exe` -> Create shortcut
+2. Copy / Cut the shortcut
+3. Navigate to `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
+4. Paste the shortcut
+
 ## Double input
+
 Stadia-ViGEm creates a virtual Xbox 360 controller which results in double input issues when some applications will read input from both the virtual and the real Stadia controller. To avoid this, install [HidHide](https://github.com/ViGEm/HidHide) and configure it as follows:
  - Open HidHide Configuration Client
  - On Applications tab:
