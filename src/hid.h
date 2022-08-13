@@ -25,8 +25,8 @@ struct hid_device
 
     HANDLE handle;
 
-    BOOLEAN read_pending;
-    BOOLEAN write_pending;
+    BOOL read_pending;
+    BOOL write_pending;
 
     USHORT input_report_size;
     USHORT output_report_size;

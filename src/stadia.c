@@ -22,24 +22,6 @@
 
 static const BYTE init_vibration[5] = {STADIA_VIBRATION_IDENTIFIER, 0x00, 0x00, 0x00, 0x00};
 
-struct stadia_controller
-{
-    struct hid_device *device;
-
-    SRWLOCK state_lock;
-    struct stadia_state state;
-
-    BOOL active;
-    HANDLE stopping_event;
-    HANDLE output_event;
-
-    SRWLOCK vibration_lock;
-    BYTE small_motor;
-    BYTE big_motor;
-
-    HANDLE input_thread;
-    HANDLE output_thread;
-};
 
 static const DWORD dpad_map[8] =
     {
@@ -54,6 +36,17 @@ static const DWORD dpad_map[8] =
 
 static int last_error = 0;
 
+static void activate_home_button()
+{
+    DWORD value = 0x00000001;
+    HKEY key;
+    if(RegOpenKeyEx(HKEY_CURRENT_USER, TEXT("Software\\Microsoft\\GameBar"), 0,KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+    {
+        RegSetKeyValueW(key, NULL,TEXT("UseNexusForGameBarEnabled"),REG_DWORD,(LPBYTE)&value, sizeof(value));
+        RegCloseKey(key);
+    }
+}
+
 static DWORD WINAPI _stadia_input_thread(LPVOID lparam)
 {
     struct stadia_controller *controller = (struct stadia_controller *)lparam;
@@ -62,7 +55,7 @@ static DWORD WINAPI _stadia_input_thread(LPVOID lparam)
     while (controller->active)
     {
         while ((bytes_read = hid_get_input_report(controller->device, STADIA_READ_TIMEOUT)) == 0)
-            ;
+            activate_home_button();
 
         if (bytes_read < 0)
         {
@@ -147,7 +140,6 @@ struct stadia_controller *stadia_controller_create(struct hid_device *device)
     if (hid_send_output_report(device, init_vibration, sizeof(init_vibration), STADIA_READ_TIMEOUT) <= 0)
     {
         last_error = STADIA_ERROR_VIBRATION_INIT_FAILURE;
-        return NULL;
     }
 
     SECURITY_ATTRIBUTES security = {.nLength = sizeof(SECURITY_ATTRIBUTES),
@@ -158,6 +150,7 @@ struct stadia_controller *stadia_controller_create(struct hid_device *device)
     controller->device = device;
     controller->active = TRUE;
 
+    controller->vibration_active = last_error != STADIA_ERROR_VIBRATION_INIT_FAILURE;
     // Create locks.
     InitializeSRWLock(&controller->state_lock);
     InitializeSRWLock(&controller->vibration_lock);

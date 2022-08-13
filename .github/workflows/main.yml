@@ -44,3 +44,28 @@ jobs:
       - name: Run build (x86)
         shell: pwsh
         run: .\Build.ps1 RELEASE x86 $True
+        
+      - name: Configure build for arm
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm
+          
+      # Run build
+      - name: Run build (x86)
+        shell: pwsh
+        run: .\Build.ps1 RELEASE arm $True
+
+      - name: Upload x64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-x64.exe
+
+      - name: Upload x86 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-x86.exe
+
+      - name: Upload arm artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-arm.exe

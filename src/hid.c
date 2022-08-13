@@ -13,7 +13,6 @@
 #include <setupapi.h>
 #include <devpkey.h>
 #include <cfgmgr32.h>
-#include <devguid.h>
 
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "hid.lib")
@@ -74,6 +73,7 @@ static void _hid_fill_symlink_and_desc(struct hid_device_info *dev_info)
                     WideCharToMultiByte(CP_ACP, 0, desc_buffer_w, -1, desc_buffer, desc_buffer_size, NULL, NULL);
                     free(desc_buffer_w);
 #endif /* UNICODE */
+
                 }
 
                 if (desc_buffer == NULL || _tcslen(desc_buffer) == 0)
@@ -246,6 +246,8 @@ BOOLEAN hid_reenable_device(struct hid_device_info *device_info)
     }
 
     SP_PROPCHANGE_PARAMS pc_params =
+    {
+        .ClassInstallHeader =
         {
             .cbSize = sizeof(SP_CLASSINSTALL_HEADER),
             .InstallFunction = DIF_PROPERTYCHANGE
@@ -255,6 +257,7 @@ BOOLEAN hid_reenable_device(struct hid_device_info *device_info)
         .HwProfile = 0
     };
     BOOLEAN res;
+
     res = SetupDiSetClassInstallParams(device_info_set, &devinfo_data, (PSP_CLASSINSTALL_HEADER)&pc_params,
                                        sizeof(SP_PROPCHANGE_PARAMS));
     res = res && SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, device_info_set, &devinfo_data);
@@ -336,6 +339,7 @@ struct hid_device *hid_open_device(struct hid_device_info *device_info, BOOLEAN 
         .bInheritHandle = TRUE
     };
     HANDLE handle = CreateFile(device_info->symlink, desired_access, share_mode, &security, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
+
     if (handle == INVALID_HANDLE_VALUE)
     {
         return NULL;
