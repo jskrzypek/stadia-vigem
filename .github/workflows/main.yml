@@ -25,6 +25,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Configure build for arm
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      # Run build
+      - name: Run build (arm64)
+        shell: pwsh
+        run: .\Build.ps1 RELEASE arm64 $True
+
+      - name: Upload arm64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-arm64.exe
+
       - name: Configure build for x64
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -35,6 +50,11 @@ jobs:
         shell: pwsh
         run: .\Build.ps1 RELEASE x64 $True
         
+      - name: Upload x64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-x64.exe
+
       - name: Configure build for x86
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -44,3 +64,8 @@ jobs:
       - name: Run build (x86)
         shell: pwsh
         run: .\Build.ps1 RELEASE x86 $True
+
+      - name: Upload x86 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: bin/stadia-vigem-x86.exe
