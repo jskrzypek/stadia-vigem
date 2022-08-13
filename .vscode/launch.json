@@ -12,6 +12,18 @@
             "environment": [],
             "externalConsole": false,
             "preLaunchTask": "Build debug binary"
+        },
+        {
+            "name": "Build and debug arm",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/stadia-vigem-arm64.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "Build debug binary (arm64)"
         }
     ]
 }

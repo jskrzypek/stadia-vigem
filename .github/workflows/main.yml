@@ -16,7 +16,18 @@ jobs:
   # This workflow contains a single job called "build"
   build:
     # The type of runner that the job will run on
-    runs-on: windows-latest
+    name: ${{ matrix.friendlyName }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        arch: [x64, arm64]
+        include:
+          - os: macos-10.15
+            friendlyName: macOS
+          - os: windows-2019
+            friendlyName: Windows
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -26,36 +37,43 @@ jobs:
           submodules: recursive
 
       - name: Configure build for arm
+        if: matrix.arch == "arm64"
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: arm64
+          arch: amd64_arm64
 
       # Run build
       - name: Run build (arm64)
+        if: matrix.arch == "arm64"
         shell: pwsh
         run: .\Build.ps1 RELEASE arm64 $True
 
       - name: Upload arm64 artifact
+        if: matrix.arch == "arm64"
         uses: actions/upload-artifact@v3
         with:
           path: bin/stadia-vigem-arm64.exe
 
       - name: Configure build for x64
+        if: matrix.arch == "x64"
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
 
       # Run build
       - name: Run build (x64)
+        if: matrix.arch == "x64"
         shell: pwsh
         run: .\Build.ps1 RELEASE x64 $True
         
       - name: Upload x64 artifact
+        if: matrix.arch == "x64"
         uses: actions/upload-artifact@v3
         with:
           path: bin/stadia-vigem-x64.exe
 
       - name: Configure build for x86
+        if: matrix.arch == "x64"
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64_x86
@@ -63,9 +81,11 @@ jobs:
       # Run build
       - name: Run build (x86)
         shell: pwsh
+        if: matrix.arch == "x64"
         run: .\Build.ps1 RELEASE x86 $True
 
       - name: Upload x86 artifact
+        if: matrix.arch == "x64"
         uses: actions/upload-artifact@v3
         with:
           path: bin/stadia-vigem-x86.exe

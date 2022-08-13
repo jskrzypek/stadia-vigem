@@ -16,6 +16,23 @@
     },
     {
       "type": "shell",
+      "label": "Build debug binary (arm64)",
+      "command": "/usr/local/microsoft/powershell/7-preview/pwsh",
+      "args": [
+        "./Build.ps1",
+        "DEBUG",
+        "arm64"
+      ],
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "shell",
       "label": "Build debug binary (x86)",
       "command": "./Build.ps1",
       "args": [
